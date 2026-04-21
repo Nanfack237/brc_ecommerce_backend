@@ -22,6 +22,7 @@ class Product extends Model
         'is_featured',
         'is_best_seller',
         'is_new',
+        'is_promoted',
         'images',       // JSON array of image paths
         'specs',        // JSON array of { key, value }
     ];
@@ -33,6 +34,7 @@ class Product extends Model
         'is_featured'   => 'boolean',
         'is_best_seller'=> 'boolean',
         'is_new'        => 'boolean',
+        'is_promoted' => 'boolean',
         'images'        => 'array',
         'specs'         => 'array',
     ];

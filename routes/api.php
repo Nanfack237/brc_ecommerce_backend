@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\WishlistController;
 use App\Http\Controllers\Api\ReviewController;
+use App\Http\Controllers\Api\DeliveryDriverController;
+use App\Http\Controllers\Api\ContactController;
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH (public)
@@ -38,7 +40,12 @@ Route::prefix('products')->group(function () {
     Route::get('/{slug}', [ProductController::class, 'show']);
 });
 
+// ── Promotions (produits avec is_promoted = true) ─────────────────────────
+Route::get('/promotions', [ProductController::class, 'promotions']);
+
 Route::get('/products/{id}/reviews', [ReviewController::class, 'index']);
+
+Route::post('/contact', [ContactController::class, 'send']);
 
 // ══════════════════════════════════════════════════════════════════════════
 // COMPTE CLIENT (auth:sanctum)
@@ -64,6 +71,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get ('/{id}',        [OrderController::class, 'show']);
         Route::post('/{id}/cancel', [OrderController::class, 'cancel']);
     });
+
+    // Avis utilisateur
+    Route::get('/my-reviews', [ReviewController::class, 'myReviews']);
 
     // Reviews
     Route::post  ('/products/{id}/reviews', [ReviewController::class, 'store']);
@@ -99,14 +109,14 @@ Route::middleware(['auth:sanctum', 'role:admin,user'])
         Route::patch ('/{id}/toggle', [ProductController::class, 'toggle']);
     });
 
-    // ── Commandes ─────────────────────────────────────────────────────────
     Route::prefix('orders')->group(function () {
-        Route::get  ('/stats',       [OrderController::class,  'stats']);       // ← AVANT /{id}
-        Route::get  ('/',            [OrderController::class,  'adminIndex']);
-        Route::get  ('/{id}',        [OrderController::class,  'adminShow']);
-        Route::patch('/{id}/status', [OrderController::class,  'updateStatus']);
-        Route::patch('/{id}/payment-status', [OrderController::class,  'updatePaymentStatus']);
-        Route::patch('/{id}/assign', [OrderController::class,  'assignDelivery']); // assigner livreur → delivery_driver_id + shipped_at
+        Route::get  ('/stats',               [OrderController::class, 'stats']);
+        Route::get  ('/',                    [OrderController::class, 'adminIndex']);
+        Route::get  ('/{id}',                [OrderController::class, 'adminShow']);
+        Route::patch('/{id}/status',         [OrderController::class, 'updateStatus']);
+        Route::patch('/{id}/payment-status', [OrderController::class, 'updatePaymentStatus']);
+        Route::patch('/{id}/assign',         [OrderController::class, 'assignDelivery']);
+        Route::patch('/{id}/shipping-cost',  [OrderController::class, 'setShippingCost']);
     });
 
     // ── Avis ──────────────────────────────────────────────────────────────
@@ -117,14 +127,34 @@ Route::middleware(['auth:sanctum', 'role:admin,user'])
         Route::delete('/{id}',         [ReviewController::class, 'adminDestroy']);
     });
 
-    // ── Utilisateurs — tout dans AuthController ───────────────────────────
+    // ── Utilisateurs ─────────────────────────────────────────────────────
     Route::prefix('users')->group(function () {
-        Route::get   ('/',             [AuthController::class, 'listUsers']);    // liste
-        Route::post  ('/',             [AuthController::class, 'createUser']);   // créer livreur/admin
-        Route::get   ('/{id}',         [AuthController::class, 'showUser']);     // détail
-        Route::patch ('/{id}/block',   [AuthController::class, 'blockUser']);    // bloquer
-        Route::patch ('/{id}/unblock', [AuthController::class, 'unblockUser']); // débloquer
-        Route::patch ('/{id}/role',    [AuthController::class, 'updateRole']);   // changer rôle
+        Route::get   ('/',             [AuthController::class, 'listUsers']);
+        Route::post  ('/',             [AuthController::class, 'createUser']);
+        Route::get   ('/{id}',         [AuthController::class, 'showUser']);
+        Route::patch ('/{id}/block',   [AuthController::class, 'blockUser']);
+        Route::patch ('/{id}/unblock', [AuthController::class, 'unblockUser']);
+        Route::patch ('/{id}/role',    [AuthController::class, 'updateRole']);
     });
+
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// LIVREUR (auth:sanctum + role:livreur)
+// ══════════════════════════════════════════════════════════════════════════
+
+Route::prefix('livreur')->middleware(['auth:sanctum', 'role:livreur'])->group(function () {
+
+    // Liste des livraisons assignées au livreur connecté
+    Route::get('/livraisons',                [DeliveryDriverController::class, 'index']);
+
+    // Détail d'une livraison
+    Route::get('/livraisons/{id}',           [DeliveryDriverController::class, 'show']);
+
+    // Marquer comme livrée
+    Route::patch('/livraisons/{id}/deliver', [DeliveryDriverController::class, 'markDelivered']);
+
+    // Stats rapides
+    Route::get('/stats',                     [DeliveryDriverController::class, 'stats']);
 
 });

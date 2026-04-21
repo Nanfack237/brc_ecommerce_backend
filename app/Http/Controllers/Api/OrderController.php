@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Mail\OrderConfirmationMail;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,16 +14,15 @@ use Illuminate\Support\Facades\Mail;
 
 class OrderController extends Controller
 {
-    private const MARCHAND_OM   = '075 XX XX XX'; // ← remplacer par vrai numéro
-    private const MARCHAND_MOMO = '650 XX XX XX'; // ← remplacer par vrai numéro
+    private const MARCHAND_OM   = '#150*14*278956*696923379*Montant#';
+    private const MARCHAND_MOMO = '*126*14*271452*678451236*Montant#';
 
     // ══════════════════════════════════════════════════════════════════════
-    // POST /api/orders/checkout  — Public (invité OU connecté)
+    // POST /api/orders/checkout
     // ══════════════════════════════════════════════════════════════════════
     public function checkout(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'ref'              => 'nullable|string|max:30',
             'nom'              => 'required|string|max:200',
             'email'            => 'nullable|email|max:200',
             'phone'            => 'required|string|max:30',
@@ -45,18 +43,11 @@ class OrderController extends Controller
             'total'            => 'required|numeric|min:0',
             'payment'          => 'required|in:om,momo,cash',
             'shipping'         => 'required|in:standard,express',
-            'promo_code'       => 'nullable|string|max:30',
             'notes'            => 'nullable|string|max:1000',
         ]);
 
-        // ── Récupérer l'utilisateur connecté via le token Bearer ─────────────
-        // auth('sanctum')->user() force la résolution du token même si le guard
-        // par défaut n'est pas sanctum
         $user   = $request->user('sanctum');
         $userId = $user?->id;
-
-        // Log de debug — retirer en production
-        Log::info('Checkout user', ['user_id' => $userId, 'token' => $request->bearerToken()]);
 
         if (!$userId) {
             return response()->json([
@@ -66,14 +57,9 @@ class OrderController extends Controller
         }
 
         $paymentMethod = match($data['payment']) {
-            'om', 'momo' => 'mobile_money',
+            'momo' => 'mobile_money',
+            'om' => 'orange_money',
             default      => 'cash_on_delivery',
-        };
-
-        $marchand = match($data['payment']) {
-            'om'    => self::MARCHAND_OM,
-            'momo'  => self::MARCHAND_MOMO,
-            default => null,
         };
 
         $nameParts = explode(' ', trim($data['nom']), 2);
@@ -83,9 +69,8 @@ class OrderController extends Controller
         DB::beginTransaction();
         try {
             $order = Order::create([
-                // order_number généré automatiquement par booted() dans Order.php
                 'user_id'             => $userId,
-                'guest_email'         => $data['email'] ?? null, // ← email du formulaire pour la confirmation
+                'guest_email'         => $data['email'] ?? null,
                 'shipping_first_name' => $firstName,
                 'shipping_last_name'  => $lastName,
                 'shipping_phone'      => $data['phone'],
@@ -93,25 +78,20 @@ class OrderController extends Controller
                 'shipping_city'       => $data['ville']    ?? null,
                 'shipping_country'    => $data['pays']     ?? null,
                 'subtotal'            => $data['subtotal'],
-                'shipping_cost'       => $data['livraison'],
+                'shipping_cost'       => 0, // ← sera défini par l'admin
                 'discount_amount'     => $data['discount'] ?? 0,
                 'total'               => $data['total'],
                 'status'              => 'pending',
                 'payment_method'      => $paymentMethod,
                 'payment_status'      => 'unpaid',
-                'notes'               => implode(' | ', array_filter([
-                                            !empty($data['notes'])      ? $data['notes']                        : null,
-                                            !empty($data['promo_code']) ? "Code promo : {$data['promo_code']}"  : null,
-                                        ])) ?: null,
+                'notes'               => $data['notes'] ?? null,
             ]);
 
             foreach ($data['items'] as $item) {
-                // Ignorer les images base64 (trop longues) — garder uniquement les URLs http
                 $image = $item['image'] ?? null;
                 if ($image && str_starts_with($image, 'data:')) {
-                    $image = null; // base64 → null, l'image Cloudinary sera chargée via product_id
+                    $image = null;
                 }
-
                 OrderItem::create([
                     'order_id'      => $order->id,
                     'product_id'    => $item['id']    ?? null,
@@ -126,23 +106,30 @@ class OrderController extends Controller
 
             DB::commit();
 
-            // ── Envoi email ───────────────────────────────────────────────
-            $emailRecipient = $data['email'] ?? null;
-            if ($emailRecipient) {
-                try {
-                    Mail::to($emailRecipient)->send(new OrderConfirmationMail(
-                        array_merge($data, [
-                            'marchand'     => $marchand,
-                            'order_number' => $order->order_number,
-                        ])
-                    ));
-                } catch (\Throwable $e) {
-                    Log::warning('Email confirmation non envoyé', [
-                        'order' => $order->order_number,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
+            // ── Email initial (sans frais de livraison) ───────────────────
+            // $emailRecipient = $data['email'] ?? null;
+            // if ($emailRecipient) {
+            //     try {
+            //         Mail::to($emailRecipient)->send(new OrderConfirmationMail([
+            //             'nom'          => $data['nom'],
+            //             'email'        => $emailRecipient,
+            //             'adresse'      => $data['adresse'],
+            //             'order_number' => $order->order_number,
+            //             'payment'      => $data['payment'],
+            //             'subtotal'     => $data['subtotal'],
+            //             'livraison'    => 0, // frais pas encore définis
+            //             'discount'     => $data['discount'] ?? 0,
+            //             'total'        => $data['total'],
+            //             'items'        => $data['items'],
+            //             'shipping_confirmed' => false,
+            //         ]));
+            //     } catch (\Throwable $e) {
+            //         Log::warning('Email confirmation non envoyé', [
+            //             'order' => $order->order_number,
+            //             'error' => $e->getMessage(),
+            //         ]);
+            //     }
+            // }
 
             return response()->json([
                 'success'    => true,
@@ -154,21 +141,82 @@ class OrderController extends Controller
 
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('Checkout failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
+            Log::error('Checkout failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la création de la commande.',
-                // DEBUG — retirer en production
                 'debug'   => $e->getMessage(),
-                'line'    => $e->getLine(),
-                'file'    => basename($e->getFile()),
             ], 500);
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // PATCH /api/admin/orders/{id}/shipping-cost
+    // ══════════════════════════════════════════════════════════════════════
+    public function setShippingCost(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'shipping_cost' => 'required|numeric|min:0',
+        ]);
+
+        $order = Order::with(['items.product', 'user'])->findOrFail($id);
+        $order->shipping_cost = $data['shipping_cost'];
+        $order->total         = $order->subtotal + $data['shipping_cost'] - ($order->discount_amount ?? 0);
+        $order->save();
+
+        // ── Email avec frais confirmés ────────────────────────────────────
+        $emailRecipient = $order->guest_email ?? $order->user?->email ?? null;
+
+        if ($emailRecipient) {
+            try {
+                $orderData = [
+                    'nom'          => trim("{$order->shipping_first_name} {$order->shipping_last_name}"),
+                    'email'        => $emailRecipient,
+                    'adresse'      => implode(', ', array_filter([
+                                        $order->shipping_street,
+                                        $order->shipping_city,
+                                        $order->shipping_country,
+                                     ])),
+                    'order_number' => $order->order_number,
+                    'payment'      => match($order->payment_method) {
+                                        'mobile_money'     => 'momo',
+                                        'orange_money'     => 'om',
+                                        'cash_on_delivery' => 'cash',
+                                        default            => 'cash',
+                                      },
+                    'subtotal'           => $order->subtotal,
+                    'livraison'          => $order->shipping_cost,
+                    'discount'           => $order->discount_amount ?? 0,
+                    'total'              => $order->total,
+                    'shipping_confirmed' => true,
+                    'items'              => $order->items->map(fn($item) => [
+                                                'name'     => $item->product_name,
+                                                'image'    => $item->product_image,
+                                                'price'    => $item->unit_price,
+                                                'quantity' => $item->quantity,
+                                           ])->toArray(),
+                ];
+
+                Mail::to($emailRecipient)->send(new OrderConfirmationMail($orderData));
+            } catch (\Throwable $e) {
+                Log::warning('Email frais livraison non envoyé', [
+                    'order' => $order->order_number,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return response()->json([
+            'success'    => true,
+            'email_sent' => !empty($emailRecipient),
+            'order'      => $order->fresh(['items', 'deliveryDriver']),
+            'message'    => 'Frais de livraison mis à jour' . ($emailRecipient ? ' et email envoyé.' : '.'),
+        ]);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // GET /api/orders  — Client : mes commandes
+    // ══════════════════════════════════════════════════════════════════════
     public function myOrders(Request $request): JsonResponse
     {
         $orders = Order::where('user_id', auth()->id())
@@ -180,7 +228,7 @@ class OrderController extends Controller
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // GET /api/orders/{id}  — Client connecté : détail d'une commande
+    // GET /api/orders/{id}
     // ══════════════════════════════════════════════════════════════════════
     public function show(int $id): JsonResponse
     {
@@ -192,7 +240,7 @@ class OrderController extends Controller
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // POST /api/orders/{id}/cancel  — Client connecté : annuler
+    // POST /api/orders/{id}/cancel
     // ══════════════════════════════════════════════════════════════════════
     public function cancel(Request $request, int $id): JsonResponse
     {
@@ -219,11 +267,15 @@ class OrderController extends Controller
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // GET /api/admin/orders  — Admin : toutes les commandes
+    // GET /api/admin/orders
     // ══════════════════════════════════════════════════════════════════════
     public function adminIndex(Request $request): JsonResponse
     {
-        $query = Order::with(['items', 'user:id,first_name,last_name,email,phone', 'deliveryDriver:id,first_name,last_name,phone'])->latest();
+        $query = Order::with([
+            'items',
+            'user:id,first_name,last_name,email,phone',
+            'deliveryDriver:id,first_name,last_name,phone',
+        ])->latest();
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -243,12 +295,12 @@ class OrderController extends Controller
         }
 
         return response()->json(
-            $query->paginate($request->get('per_page', 20))
+            $query->paginate($request->get('per_page', 200))
         );
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // GET /api/admin/orders/{id}  — Admin : détail commande
+    // GET /api/admin/orders/{id}
     // ══════════════════════════════════════════════════════════════════════
     public function adminShow(Order $order): JsonResponse
     {
@@ -256,7 +308,7 @@ class OrderController extends Controller
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // PATCH /api/admin/orders/{id}/status  — Admin : changer statut
+    // PATCH /api/admin/orders/{id}/status
     // ══════════════════════════════════════════════════════════════════════
     public function updateStatus(Request $request, int $id): JsonResponse
     {
@@ -269,7 +321,6 @@ class OrderController extends Controller
             'cancelled_reason'  => 'nullable|string|max:500',
         ]);
 
-        // Gestion des dates
         if ($data['status'] === 'shipped' && !$order->shipped_at) {
             $order->shipped_at = now();
         }
@@ -277,19 +328,14 @@ class OrderController extends Controller
             $order->delivered_at = now();
         }
         if ($data['status'] === 'cancelled' && !$order->cancelled_at) {
-            $order->cancelled_at = now();
-            // Utilisation de guillemets doubles pour éviter l'erreur sur l'apostrophe
+            $order->cancelled_at     = now();
             $order->cancelled_reason = $data['cancelled_reason'] ?? "Annulée par l'admin";
         }
 
         $order->status = $data['status'];
-        
-        if (!empty($data['payment_status'])) {
-            $order->payment_status = $data['payment_status'];
-        }
-        if (!empty($data['payment_reference'])) {
-            $order->payment_reference = $data['payment_reference'];
-        }
+
+        if (!empty($data['payment_status']))    $order->payment_status    = $data['payment_status'];
+        if (!empty($data['payment_reference'])) $order->payment_reference = $data['payment_reference'];
 
         $order->save();
 
@@ -299,7 +345,9 @@ class OrderController extends Controller
         ]);
     }
 
-
+    // ══════════════════════════════════════════════════════════════════════
+    // PATCH /api/admin/orders/{id}/payment-status
+    // ══════════════════════════════════════════════════════════════════════
     public function updatePaymentStatus(Request $request, int $id): JsonResponse
     {
         $order = Order::findOrFail($id);
@@ -308,27 +356,14 @@ class OrderController extends Controller
             'payment_status' => 'required|in:unpaid,paid,refunded',
         ]);
 
-        // Déduire le stock uniquement quand on passe à "paid"
-        // et que le statut précédent n'était pas déjà "paid"
         if ($data['payment_status'] === 'paid' && $order->payment_status !== 'paid') {
-
-            // Charger les items avec leurs produits en une seule requête
             $order->load('items.product');
-
             foreach ($order->items as $item) {
                 $product = $item->product;
-
                 if (!$product) continue;
-
-                // Déduire la quantité commandée du stock
                 $newStock = max(0, $product->stock - $item->quantity);
                 $product->stock = $newStock;
-
-                // Passer automatiquement en out_of_stock si stock épuisé
-                if ($newStock === 0) {
-                    $product->status = 'out_of_stock';
-                }
-
+                if ($newStock === 0) $product->status = 'out_of_stock';
                 $product->save();
             }
         }
@@ -341,9 +376,9 @@ class OrderController extends Controller
             'order'   => $order->load('items.product'),
         ]);
     }
+
     // ══════════════════════════════════════════════════════════════════════
-    // PATCH /api/admin/orders/{order}/assign — Assigner un livreur
-    // Met à jour delivery_driver_id + shipped_at sur la commande existante
+    // PATCH /api/admin/orders/{id}/assign
     // ══════════════════════════════════════════════════════════════════════
     public function assignDelivery(Request $request, int $id): JsonResponse
     {
@@ -351,27 +386,24 @@ class OrderController extends Controller
             'delivery_driver_id' => 'required|exists:users,id',
         ]);
 
-        // 1. On récupère l'instance existante
         $order = Order::findOrFail($id);
-
-        // 2. On met à jour les champs
         $order->update([
             'delivery_driver_id' => $data['delivery_driver_id'],
-            'status'             => 'processing', // "En cours" comme tu as demandé
+            'status'             => 'processing',
             'shipped_at'         => now(),
         ]);
 
-        // 3. On recharge les relations pour le front-end (pour avoir le nom du livreur)
         $order->load('deliveryDriver:id,first_name,last_name,phone');
 
         return response()->json([
             'success' => true,
             'order'   => $order,
-            'message' => "Livreur assigné et commande en cours."
+            'message' => 'Livreur assigné et commande en cours.',
         ]);
     }
+
     // ══════════════════════════════════════════════════════════════════════
-    // GET /api/admin/orders/stats  — Admin : statistiques dashboard
+    // GET /api/admin/orders/stats
     // ══════════════════════════════════════════════════════════════════════
     public function stats(): JsonResponse
     {
@@ -390,6 +422,4 @@ class OrderController extends Controller
             'orders_today'  => Order::whereDate('created_at', today())->count(),
         ]);
     }
-
-
 }

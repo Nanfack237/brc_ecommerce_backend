@@ -21,7 +21,7 @@ class WelcomeUser extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "🎉 Bienvenue sur BRC Market, {$this->user->first_name} !",
+            subject: "Bienvenue sur BRC Market, {$this->user->first_name} !",
         );
     }
 

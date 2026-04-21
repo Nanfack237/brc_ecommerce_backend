@@ -22,11 +22,11 @@ class CategoryController extends Controller
     {
         $categories = Category::roots()
             ->active()
-            ->ordered()
+            ->oldest()
             ->withCount(['products' => fn ($q) => $q->where('status', 'published')])
             ->with(['activeChildren' => function ($q) {
                 $q->withCount(['products' => fn ($q) => $q->where('status', 'published')])
-                  ->ordered();
+                  ->oldest();
             }])
             ->get()
             ->map(function (Category $cat) {

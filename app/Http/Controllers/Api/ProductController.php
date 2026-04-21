@@ -30,11 +30,14 @@ class ProductController extends Controller
 
         // ── Catégorie ─────────────────────────────────────────────────────
         if ($request->filled('category')) {
-            $query->whereHas('category', fn ($q) => $q->where('slug', $request->category));
+            $slugs = array_filter(array_map('trim', (array) $request->input('category')));
+            $query->whereHas('category', function ($q) use ($slugs) {
+                $q->whereIn('slug', $slugs)
+                ->orWhereHas('parent', fn ($p) => $p->whereIn('slug', $slugs));
+            });
         }
 
-        // ── Marques — OR entre les valeurs ────────────────────────────────
-        // Supporte : brand=HP  ET  brand[]=HP&brand[]=Dell&brand[]=Lenovo
+        // ── Marques ───────────────────────────────────────────────────────
         if ($request->has('brand')) {
             $brands = array_filter(array_map('trim', (array) $request->input('brand')));
             if (!empty($brands)) {
@@ -51,14 +54,8 @@ class ProductController extends Controller
         }
 
         // ── Specs dynamiques ──────────────────────────────────────────────
-        // Chaque paramètre spec_* est un groupe indépendant (AND entre groupes)
-        // Plusieurs valeurs dans un groupe = OR  (spec_ram[]=4 Go&spec_ram[]=8 Go)
-        //
-        // Tes specs sont stockées en JSON sous la forme :
-        //   [{"key":"Ram","value":"16 Go"}, {"key":"Stockage","value":"512 Go SSD"}, ...]
-        //
-        // On cherche les produits dont le champ specs contient au moins une entrée
-        // dont la valeur correspond à l'une des valeurs demandées.
+        // spec_ram[]=16 Go  →  paramKey = "spec_ram", specKey = "ram"
+        // AND entre les groupes, OR entre les valeurs d'un même groupe
         foreach ($request->all() as $paramKey => $paramVal) {
             if (!str_starts_with($paramKey, 'spec_')) {
                 continue;
@@ -69,14 +66,15 @@ class ProductController extends Controller
                 continue;
             }
 
-            // AND : chaque groupe de spec est un where() séparé
-            $query->where(function ($q) use ($vals) {
+            // Extrait le nom de la spec depuis le paramètre (spec_ram → ram)
+            $specKey = strtolower(substr($paramKey, 5));
+
+            $query->where(function ($q) use ($specKey, $vals) {
                 foreach ($vals as $specVal) {
-                    // OR : plusieurs valeurs dans le même groupe
-                    // Format {"key":"Ram","value":"16 Go"}
-                    $q->orWhereJsonContains('specs', ['value' => $specVal])
-                      // Format {"name":"Ram","value":"16 Go"}
-                      ->orWhereJsonContains('specs', ['value' => $specVal]);
+                    // Supporte {"key":"ram","value":"16 Go"}
+                    // ET       {"key":"Ram","value":"16 Go"} (casse variable)
+                    $q->orWhereJsonContains('specs', ['key' => $specKey,        'value' => $specVal])
+                    ->orWhereJsonContains('specs', ['key' => ucfirst($specKey), 'value' => $specVal]);
                 }
             });
         }
@@ -93,7 +91,10 @@ class ProductController extends Controller
         }
         if ($request->filled('has_discount')) {
             $query->whereNotNull('old_price')
-                  ->whereColumn('old_price', '>', 'price');
+                ->whereColumn('old_price', '>', 'price');
+        }
+        if ($request->filled('is_promoted')) {
+            $query->where('is_promoted', true);
         }
 
         // ── Recherche texte ───────────────────────────────────────────────
@@ -101,8 +102,8 @@ class ProductController extends Controller
             $q = $request->q;
             $query->where(function ($sq) use ($q) {
                 $sq->where('name',        'like', "%{$q}%")
-                   ->orWhere('brand',       'like', "%{$q}%")
-                   ->orWhere('description', 'like', "%{$q}%");
+                ->orWhere('brand',       'like', "%{$q}%")
+                ->orWhere('description', 'like', "%{$q}%");
             });
         }
 
@@ -164,6 +165,58 @@ class ProductController extends Controller
         return response()->json($products);
     }
 
+    /**
+     * GET /api/promotions
+     * Produits publiés avec is_promoted = true
+     */
+    public function promotions(Request $request): JsonResponse
+    {
+        $query = Product::whereIn('status', ['published', 'out_of_stock'])
+            ->where('is_promoted', true)
+            ->with('category:id,name,slug')
+            ->withCount('reviews');
+
+        // ── Catégorie (filtre optionnel) ───────────────────────────────────
+        if ($request->filled('category')) {
+            $slugs = array_filter(array_map('trim', (array) $request->input('category')));
+            $query->whereHas('category', function ($q) use ($slugs) {
+                $q->whereIn('slug', $slugs)
+                  ->orWhereHas('parent', fn ($p) => $p->whereIn('slug', $slugs));
+            });
+        }
+
+        // ── Prix ──────────────────────────────────────────────────────────
+        if ($request->filled('min_price')) {
+            $query->where('price', '>=', (float) $request->min_price);
+        }
+        if ($request->filled('max_price')) {
+            $query->where('price', '<=', (float) $request->max_price);
+        }
+
+        // ── Recherche texte ───────────────────────────────────────────────
+        if ($request->filled('q')) {
+            $q = $request->q;
+            $query->where(function ($sq) use ($q) {
+                $sq->where('name',        'like', "%{$q}%")
+                   ->orWhere('brand',     'like', "%{$q}%")
+                   ->orWhere('description', 'like', "%{$q}%");
+            });
+        }
+
+        // ── Tri ───────────────────────────────────────────────────────────
+        match ($request->get('sort', 'latest')) {
+            'price_asc'  => $query->orderBy('price', 'asc'),
+            'price_desc' => $query->orderBy('price', 'desc'),
+            'popular'    => $query->orderByDesc('reviews_count'),
+            'discount'   => $query->orderByRaw('(old_price - price) DESC')->whereNotNull('old_price'),
+            default      => $query->latest(),
+        };
+
+        $perPage = min((int) $request->get('per_page', 20), 100);
+
+        return response()->json($query->paginate($perPage));
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // ADMIN
     // ══════════════════════════════════════════════════════════════════════
@@ -182,6 +235,9 @@ class ProductController extends Controller
         }
         if ($request->filled('category')) {
             $query->where('category_id', $request->category);
+        }
+        if ($request->filled('is_promoted')) {
+            $query->where('is_promoted', filter_var($request->is_promoted, FILTER_VALIDATE_BOOLEAN));
         }
         if ($request->filled('q')) {
             $q = $request->q;
@@ -232,6 +288,7 @@ class ProductController extends Controller
             'is_featured'    => 'boolean',
             'is_best_seller' => 'boolean',
             'is_new'         => 'boolean',
+            'is_promoted'    => 'boolean',  // ← AJOUT
             'images'         => 'nullable|array',
             'images.*'       => 'nullable|string',
             'specs'          => 'nullable|array',
@@ -267,6 +324,7 @@ class ProductController extends Controller
             'is_featured'    => 'boolean',
             'is_best_seller' => 'boolean',
             'is_new'         => 'boolean',
+            'is_promoted'    => 'boolean',  // ← AJOUT
             'images'         => 'nullable|array',
             'images.*'       => 'nullable|string',
             'specs'          => 'nullable|array',

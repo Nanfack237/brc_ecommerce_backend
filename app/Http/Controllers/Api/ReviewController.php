@@ -18,12 +18,24 @@ class ReviewController extends Controller
 
         $reviews = Review::with('user:id,first_name,last_name')
             ->where('product_id', $product->id)
-            ->where('is_approved', true)          // seulement les approuvés
+            ->where('is_approved', true)
             ->latest()
-            ->limit(5)                            // max 5 dans le marquee
+            ->limit(5)
             ->get();
 
         return response()->json($reviews);
+    }
+
+    // ── GET /my-reviews — auth ────────────────────────────────────────────────
+    // Retourne tous les avis de l'utilisateur connecté (approuvés + en attente)
+    public function myReviews(Request $request)
+    {
+        $reviews = Review::with('product:id,name,slug,images')
+            ->where('user_id', Auth::id())
+            ->latest()
+            ->get();
+
+        return response()->json(['data' => $reviews]);
     }
 
     // ── POST /products/{id}/reviews — auth ────────────────────────────────────
@@ -52,7 +64,7 @@ class ReviewController extends Controller
             'order_id'    => $data['order_id'] ?? null,
             'rating'      => $data['rating'],
             'comment'     => $data['comment'],
-            'is_approved' => false,   // en attente validation admin
+            'is_approved' => false,
         ]);
 
         return response()->json([
@@ -61,7 +73,7 @@ class ReviewController extends Controller
         ], 201);
     }
 
-    // ── PUT /reviews/{id} — auth (modifier son propre avis) ──────────────────
+    // ── PUT /reviews/{id} — auth ──────────────────────────────────────────────
     public function update(Request $request, $id)
     {
         $review = Review::findOrFail($id);
@@ -75,7 +87,6 @@ class ReviewController extends Controller
             'comment' => 'sometimes|string|max:500',
         ]);
 
-        // Repasse en attente de validation si modifié
         $review->update(array_merge($data, ['is_approved' => false]));
 
         return response()->json($review->load('user:id,first_name,last_name'));
@@ -103,7 +114,6 @@ class ReviewController extends Controller
             'product:id,name,slug',
         ])->latest();
 
-        // Filtre par statut
         if ($request->has('approved')) {
             $query->where('is_approved', filter_var($request->approved, FILTER_VALIDATE_BOOLEAN));
         }
