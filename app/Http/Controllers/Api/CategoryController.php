@@ -104,29 +104,75 @@ class CategoryController extends Controller
         // ── Specs JSON ────────────────────────────────────────────────────
         // Format en BD : [{"key":"Ram","value":"16 Go"}, {"key":"Processeur","value":"Core i5"}, ...]
         // Le frontend envoie : spec_ram=16 Go, spec_processeur=Core i5, spec_etat=Neuf, etc.
-        $specParams = collect($request->all())
-            ->filter(fn ($v, $k) => str_starts_with($k, 'spec_') && filled($v));
+        // ── Specs JSON ────────────────────────────────────────────────────────
+$specParams = collect($request->all())
+    ->filter(fn ($v, $k) => str_starts_with($k, 'spec_') && filled($v));
 
-        foreach ($specParams as $paramKey => $paramValue) {
-            // "spec_ram"        → "Ram"
-            // "spec_processeur" → "Processeur"
-            // "spec_generation" → "Generation"
-            // "spec_etat"       → "Etat"
-            $specKey = ucfirst(str_replace('_', ' ', substr($paramKey, 5)));
+foreach ($specParams as $paramKey => $paramValue) {
+    $specKey = ucfirst(str_replace('_', ' ', substr($paramKey, 5)));
+    $specKeyLower = strtolower(substr($paramKey, 5));
 
-            $query->where(function ($q) use ($specKey, $paramValue) {
-                // 1) Correspondance exacte (casse respectée)
-                $q->whereJsonContains('specs', ['key' => $specKey, 'value' => $paramValue]);
+    $query->where(function ($q) use ($specKey, $specKeyLower, $paramValue) {
 
-                // 2) Fallback insensible à la casse via JSON_SEARCH (MySQL / MariaDB)
-                //    Utile si la casse en BD diffère légèrement ("ram" vs "Ram", "neuf" vs "Neuf")
-                $q->orWhereRaw(
-                    "JSON_SEARCH(LOWER(specs), 'one', LOWER(?), NULL, '\$[*].value') IS NOT NULL
-                     AND JSON_SEARCH(LOWER(specs), 'one', LOWER(?), NULL, '\$[*].key') IS NOT NULL",
-                    [$paramValue, $specKey]
-                );
-            });
+        // ── Dual Core → celeron, pentium, atom, dual ──────────────────
+        if (strtolower($paramValue) === 'dual core') {
+            $dualKeywords = ['celeron', 'pentium', 'atom', 'dual core', 'dualcore'];
+            foreach ($dualKeywords as $kw) {
+                $q->orWhereJsonContains('specs', ['key' => $specKey,      'value' => $kw])
+                  ->orWhereJsonContains('specs', ['key' => $specKeyLower,  'value' => $kw]);
+                $q->orWhereRaw("JSON_SEARCH(LOWER(specs), 'one', ?) IS NOT NULL", ["%{$kw}%"]);
+            }
+            return;
         }
+
+        // ── Ram : cherche "8 Go" dans "8 Go DDR4 ..." ────────────────
+        if ($specKeyLower === 'ram') {
+            preg_match('/^(\d+)\s*(go|gb)/i', $paramValue, $m);
+            if ($m) {
+                $ramGo = $m[1];
+                $q->orWhereRaw("JSON_SEARCH(LOWER(specs), 'one', ?) IS NOT NULL", ["%{$ramGo} go%"])
+                  ->orWhereRaw("JSON_SEARCH(LOWER(specs), 'one', ?) IS NOT NULL", ["%{$ramGo}go%"])
+                  ->orWhereRaw("JSON_SEARCH(LOWER(specs), 'one', ?) IS NOT NULL", ["%{$ramGo} gb%"]);
+                return;
+            }
+        }
+
+        // ── Stockage ──────────────────────────────────────────────────
+        if ($specKeyLower === 'stockage') {
+            preg_match('/(\d+)\s*(go|gb|to|tb)/i', $paramValue, $m);
+            if ($m) {
+                $size = $m[1];
+                $unit = strtolower($m[2]);
+                $type = stripos($paramValue, 'ssd') !== false ? 'ssd'
+                      : (stripos($paramValue, 'hdd') !== false ? 'hdd' : '');
+                if (in_array($unit, ['to', 'tb'])) $size = ($size * 1024) . ' go';
+                $q->orWhereRaw("JSON_SEARCH(LOWER(specs), 'one', ?) IS NOT NULL", ["%{$size}%"]);
+                if ($type) {
+                    $q->whereRaw("JSON_SEARCH(LOWER(specs), 'one', ?) IS NOT NULL", ["%{$type}%"]);
+                }
+                return;
+            }
+        }
+
+        // ── Génération ────────────────────────────────────────────────
+        if ($specKeyLower === 'generation') {
+            preg_match('/^(\d+)/i', $paramValue, $m);
+            if ($m) {
+                $gen = $m[1];
+                $q->orWhereRaw("JSON_SEARCH(LOWER(specs), 'one', ?) IS NOT NULL", ["%{$gen}%"]);
+                return;
+            }
+        }
+
+        // ── Matching exact par défaut ──────────────────────────────────
+        $q->whereJsonContains('specs', ['key' => $specKey, 'value' => $paramValue]);
+        $q->orWhereRaw(
+            "JSON_SEARCH(LOWER(specs), 'one', LOWER(?), NULL, '\$[*].value') IS NOT NULL
+             AND JSON_SEARCH(LOWER(specs), 'one', LOWER(?), NULL, '\$[*].key') IS NOT NULL",
+            [$paramValue, $specKey]
+        );
+    });
+}
 
         // ── Tri ───────────────────────────────────────────────────────────
         switch ($request->get('sort', 'latest')) {

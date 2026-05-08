@@ -78,7 +78,7 @@ class OrderController extends Controller
                 'shipping_city'       => $data['ville']    ?? null,
                 'shipping_country'    => $data['pays']     ?? null,
                 'subtotal'            => $data['subtotal'],
-                'shipping_cost'       => 0, // ← sera défini par l'admin
+                'shipping_cost'       => 0,
                 'discount_amount'     => $data['discount'] ?? 0,
                 'total'               => $data['total'],
                 'status'              => 'pending',
@@ -105,31 +105,6 @@ class OrderController extends Controller
             }
 
             DB::commit();
-
-            // ── Email initial (sans frais de livraison) ───────────────────
-            // $emailRecipient = $data['email'] ?? null;
-            // if ($emailRecipient) {
-            //     try {
-            //         Mail::to($emailRecipient)->send(new OrderConfirmationMail([
-            //             'nom'          => $data['nom'],
-            //             'email'        => $emailRecipient,
-            //             'adresse'      => $data['adresse'],
-            //             'order_number' => $order->order_number,
-            //             'payment'      => $data['payment'],
-            //             'subtotal'     => $data['subtotal'],
-            //             'livraison'    => 0, // frais pas encore définis
-            //             'discount'     => $data['discount'] ?? 0,
-            //             'total'        => $data['total'],
-            //             'items'        => $data['items'],
-            //             'shipping_confirmed' => false,
-            //         ]));
-            //     } catch (\Throwable $e) {
-            //         Log::warning('Email confirmation non envoyé', [
-            //             'order' => $order->order_number,
-            //             'error' => $e->getMessage(),
-            //         ]);
-            //     }
-            // }
 
             return response()->json([
                 'success'    => true,
@@ -164,7 +139,6 @@ class OrderController extends Controller
         $order->total         = $order->subtotal + $data['shipping_cost'] - ($order->discount_amount ?? 0);
         $order->save();
 
-        // ── Email avec frais confirmés ────────────────────────────────────
         $emailRecipient = $order->guest_email ?? $order->user?->email ?? null;
 
         if ($emailRecipient) {
@@ -403,7 +377,7 @@ class OrderController extends Controller
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // GET /api/admin/orders/stats
+    // GET /api/admin/orders/stats  — utilisé par les autres pages admin
     // ══════════════════════════════════════════════════════════════════════
     public function stats(): JsonResponse
     {
@@ -420,6 +394,38 @@ class OrderController extends Controller
                 ->whereYear('created_at',  now()->year)
                 ->sum('total'),
             'orders_today'  => Order::whereDate('created_at', today())->count(),
+        ]);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // GET /api/admin/orders/dashboard-stats  — utilisé uniquement par le dashboard
+    // ══════════════════════════════════════════════════════════════════════
+    public function dashboardStats(): JsonResponse
+    {
+        $now       = now();
+        $thisMonth = Order::whereMonth('created_at', $now->month)->whereYear('created_at', $now->year);
+        $lastMonth = Order::whereMonth('created_at', $now->copy()->subMonth()->month)
+                          ->whereYear('created_at',  $now->copy()->subMonth()->year);
+
+        $totalNow  = (clone $thisMonth)->count();
+        $totalLast = (clone $lastMonth)->count();
+        $change    = $totalLast > 0 ? round((($totalNow - $totalLast) / $totalLast) * 100) : 0;
+
+        $revNow    = (clone $thisMonth)->where('payment_status', 'paid')->sum('total');
+        $revLast   = (clone $lastMonth)->where('payment_status', 'paid')->sum('total');
+        $revChange = $revLast > 0 ? round((($revNow - $revLast) / $revLast) * 100) : 0;
+
+        $recent = Order::with('user:id,first_name,last_name')
+            ->latest()
+            ->limit(5)
+            ->get(['id', 'order_number', 'user_id', 'total', 'status', 'created_at']);
+
+        return response()->json([
+            'total'          => Order::count(),
+            'change'         => $change,
+            'revenue'        => $revNow,
+            'revenue_change' => $revChange,
+            'recent'         => $recent,
         ]);
     }
 }

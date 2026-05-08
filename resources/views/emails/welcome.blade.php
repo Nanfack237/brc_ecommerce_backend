@@ -103,7 +103,7 @@
 
     <div class="footer">
       © {{ date('Y') }} BRC Market · Douala & Yaoundé, Cameroun<br>
-      <a href="{{ config('app.url') }}">www.brcmarket.cm</a>
+      <a href="https://brcmarket.cm">www.brcmarket.cm</a>
     </div>
 
   </div>

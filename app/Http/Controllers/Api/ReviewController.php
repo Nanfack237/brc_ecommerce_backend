@@ -92,6 +92,16 @@ class ReviewController extends Controller
         return response()->json($review->load('user:id,first_name,last_name'));
     }
 
+
+    public function stats()
+    {
+        return response()->json([
+            'total'   => Review::count(),
+            'pending' => Review::where('is_approved', false)->count(),
+        ]);
+    }
+
+
     // ── DELETE /reviews/{id} — auth ───────────────────────────────────────────
     public function destroy($id)
     {

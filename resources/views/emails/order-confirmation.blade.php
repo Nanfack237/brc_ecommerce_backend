@@ -60,7 +60,7 @@
             <tr>
               <td>
                 <p style="margin:0;font-size:13px;color:#166534;font-weight:700;">
-                  ✅ Frais de livraison confirmés :
+                  Frais de livraison confirmés :
                   <strong style="font-size:16px;color:#16a34a;">
                     {{ number_format($order['livraison'], 0, ',', ' ') }} FCFA
                   </strong>
@@ -170,21 +170,21 @@
               <!-- Livraison -->
               <td width="48%" valign="top"
                 style="background:#f8fafc;border-radius:12px;padding:18px;border:1px solid #e8edf2;">
-                <p style="margin:0 0 10px;font-size:11px;font-weight:900;color:#999;letter-spacing:1.5px;">📦 Livraison</p>
+                <p style="margin:0 0 10px;font-size:11px;font-weight:900;color:#999;letter-spacing:1.5px;">Livraison</p>
                 <p style="margin:0 0 3px;font-size:13px;font-weight:700;color:#1a1a2e;">{{ $order['nom'] }}</p>
                 <p style="margin:0 0 10px;font-size:12px;color:#666;">{{ $order['adresse'] }}</p>
 
                 @if(!empty($order['shipping_confirmed']) && $order['shipping_confirmed'])
                   <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:10px;border-radius:8px;">
                     <p style="margin:0;font-size:12px;font-weight:900;color:#166534;">
-                      ✅ Frais confirmés : {{ number_format($order['livraison'], 0, ',', ' ') }} FCFA
+                      Frais confirmés : {{ number_format($order['livraison'], 0, ',', ' ') }} FCFA
                     </p>
                     <p style="margin:4px 0 0;font-size:11px;color:#4ade80;">Votre livreur vous contactera bientôt.</p>
                   </div>
                 @else
                   <div style="background:#fff4f4;border:1px dashed #e60012;padding:10px;border-radius:8px;">
                     <p style="margin:0;font-size:11px;color:#e60012;font-weight:700;line-height:1.5;">
-                      ⏳ Frais en cours de calcul.<br/>
+                      Frais en cours de calcul.<br/>
                       Notre équipe vous contactera sous <strong>10 minutes</strong>.
                     </p>
                   </div>
@@ -196,13 +196,13 @@
               <!-- Paiement -->
               <td width="48%" valign="top"
                 style="background:#f8fafc;border-radius:12px;padding:18px;border:1px solid #e8edf2;">
-                <p style="margin:0 0 10px;font-size:11px;font-weight:900;color:#999;letter-spacing:1.5px;">💳 Paiement</p>
+                <p style="margin:0 0 10px;font-size:11px;font-weight:900;color:#999;letter-spacing:1.5px;">Paiement</p>
                 @if($order['payment'] === 'om')
-                  <p style="margin:0 0 6px;font-size:13px;font-weight:900;color:#ea580c;">🟠 Orange Money</p>
+                  <p style="margin:0 0 6px;font-size:13px;font-weight:900;color:#ea580c;">Orange Money</p>
                   @if(!empty($order['shipping_confirmed']) && $order['shipping_confirmed'])
                     <p style="margin:0 0 3px;font-size:12px;color:#666;">
                       Montant total à payer : <strong>{{ number_format($order['subtotal'] + $order['livraison'], 0, ',', ' ') }} FCFA</strong>
-                      Code Marchand : <strong>#150*14*427230*657905056*<strong>{{ number_format($order['total']) }}#<br></strong>
+                      Code Marchand : <strong>#150*14*427230*657905056*Montant#<strong>{{ number_format($order['total']) }}#<br></strong>
                       Nom : <strong>Ets YOMENI</strong>
                     </p>
                   @else
@@ -211,11 +211,11 @@
                     </p>
                   @endif
                 @elseif($order['payment'] === 'momo')
-                  <p style="margin:0 0 6px;font-size:13px;font-weight:900;color:#ca8a04;">🟡 MTN Mobile Money</p>
+                  <p style="margin:0 0 6px;font-size:13px;font-weight:900;color:#ca8a04;">MTN Mobile Money</p>
                   @if(!empty($order['shipping_confirmed']) && $order['shipping_confirmed'])
                     <p style="margin:0 0 3px;font-size:12px;color:#666;">
                       Montant total à payer : <strong>{{ number_format($order['total'], 0,',') }} FCFA</strong><br>
-                      Code Marchand : <strong>*126*16*925847# </strong><br>
+                      Code Marchand : <strong>*126*16*925847*Montant# </strong><br>
                       Nom : <strong>Vanelle Yemdjeu<strong>
                     </p>
                   @else
@@ -224,7 +224,7 @@
                     </p>
                   @endif
                 @else
-                  <p style="margin:0 0 6px;font-size:13px;font-weight:900;color:#274a82;">💵 Paiement à la livraison</p>
+                  <p style="margin:0 0 6px;font-size:13px;font-weight:900;color:#274a82;">Paiement à la livraison</p>
                   @if(!empty($order['shipping_confirmed']) && $order['shipping_confirmed'])
                     <p style="margin:0;font-size:11px;color:#666;line-height:1.4;">
                       Préparez <strong>{{ number_format($order['subtotal'] + $order['livraison'], 0, ',', ' ') }} FCFA</strong> à la réception.
@@ -270,7 +270,7 @@
                 <td style="padding-left:10px;">
                   @if(!empty($order['shipping_confirmed']) && $order['shipping_confirmed'])
                     <p style="margin:0;font-size:12px;color:#fff;font-weight:700;line-height:1.5;">
-                      ✅ Frais de livraison confirmés :
+                      Frais de livraison confirmés :
                       <strong>{{ number_format($order['livraison'], 0, ',', ' ') }} FCFA</strong>
                     </p>
                   @else
@@ -298,7 +298,7 @@
             <!-- Cadeau clé USB -->
             <div style="background:rgba(230,0,18,0.18);border:1px solid rgba(230,0,18,0.4);border-radius:10px;padding:14px 16px;">
               <p style="margin:0;font-size:13px;color:#fff;font-weight:900;line-height:1.5;">
-                🎁 Cadeau inclus dans votre colis !
+              Cadeau inclus dans votre colis !
               </p>
               <p style="margin:6px 0 0;font-size:12px;color:rgba(255,255,255,0.85);line-height:1.5;">
                 Une <strong style="color:#fff;">clé USB 32GB</strong> vous sera remise à la livraison.<br/>

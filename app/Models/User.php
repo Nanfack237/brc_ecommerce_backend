@@ -9,7 +9,9 @@ class User extends Authenticatable {
     protected $fillable = [
         'first_name','last_name','username','email','phone','password',
         'role','avatar','birthdate','is_blocked',
-        'blocked_reason','blocked_at','last_login_at',
+        'blocked_reason','blocked_at','last_login_at','reset_code',
+        'reset_code_expires_at', 'last_device_type', 'last_browser', 'last_os',
+        'last_city', 'last_country', 'last_ip'
     ];
     protected $hidden  = ['password','remember_token'];
     protected $casts   = [
